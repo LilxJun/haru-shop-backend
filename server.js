@@ -23,15 +23,18 @@ const pool = new Pool({
     user: process.env.DB_USER,
     host: process.env.DB_HOST,
     database: process.env.DB_NAME,
-    password: process.env.DB_PASSWORD, // Giấu luôn mật khẩu DB 123456
+    password: process.env.DB_PASSWORD,
     port: process.env.DB_PORT,
+    ssl: {
+        rejectUnauthorized: false // Bắt buộc phải có dòng này để chạy trên Railway
+    }
 });
 
 pool.connect((err) => {
     if (err) {
         console.error('❌ Lỗi kết nối Database:', err.stack);
     } else {
-        console.log('✅ Server Haru chạy tại http://localhost:3000 (Sử dụng PostgreSQL)');
+        console.log('✅ Đã kết nối Database Railway thành công!');
     }
 });
 
@@ -717,6 +720,7 @@ app.post('/api/reset-password', async (req, res) => {
     }
 });
 
-app.listen(3000, () => {
-    console.log('--- SERVER ĐANG CHẠY MƯỢT MÀ ---');
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`--- SERVER ĐANG CHẠY TẠI CỔNG ${PORT} ---`);
 });
