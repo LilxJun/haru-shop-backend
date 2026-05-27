@@ -653,35 +653,73 @@ app.delete('/api/admin/products/:id', async (req, res) => {
 // API ADMIN: QUẢN LÝ ĐƠN HÀNG
 // ==========================================
 
-// 1. Lấy danh sách tất cả đơn hàng (Kèm chi tiết từng món đồ bên trong)
-// 1. Lấy danh sách tất cả đơn hàng (Kèm chi tiết từng món đồ bên trong)
+// app.get('/api/admin/orders', async (req, res) => {
+//     try {
+//         const query = `
+//             SELECT o.*, 
+//                    COALESCE(
+//                        json_agg(
+//                            json_build_object(
+//                                'product_id', oi.product_id,
+//                                'quantity', oi.quantity,
+//                                'price', oi.price,
+//                                'selected_model', oi."selected_model",
+//                                'selected_color', oi."selected_color",
+//                                'product_name', p.name,
+//                                'product_image', pv.color_img
+//                            )
+//                        ) FILTER (WHERE oi.id IS NOT NULL), '[]'
+//                    ) as items
+//             FROM orders o
+//             LEFT JOIN order_items oi ON o.id = oi.order_id
+//             LEFT JOIN products p ON oi.product_id = p.id
+//             LEFT JOIN product_variants pv ON oi.variant_id = pv.id
+//             GROUP BY o.id
+//             ORDER BY o.created_at DESC
+//         `;
+
+//         const result = await pool.query(query);
+//         res.json(result.rows);
+//     } catch (err) {
+//         console.error("Lỗi SQL:", err);
+//         res.status(500).json({ success: false, message: 'Lỗi server: ' + err.message });
+//     }
+// });
+
+// ==========================================
+// API ADMIN: QUẢN LÝ ĐƠN HÀNG (BẢN CHUẨN - KHÔNG DÙNG CỘT LỖI)
+// ==========================================
 app.get('/api/admin/orders', async (req, res) => {
     try {
-        // Lệnh SQL này cực kỳ xịn: Nó lôi Đơn hàng ra, sau đó gom tất cả đồ trong đơn đó thành 1 mảng JSON (json_agg)
         const query = `
-            SELECT o.*, 
-                   COALESCE(json_agg(
-                       json_build_object(
-                           'product_id', oi.product_id,
-                           'quantity', oi.quantity,
-                           'price', oi.price,
-                           'selected_model', oi.selected_model,
-                           'selected_color', oi.selected_color,
-                           'product_name', p.name,
-                           'product_image', p.image,
-                           'product_colors', p.colors
-                       )
-                   ) FILTER (WHERE oi.id IS NOT NULL), '[]') as items
-            FROM orders o
-            LEFT JOIN order_items oi ON o.id = oi.order_id
-            LEFT JOIN products p ON oi.product_id = p.id
-            GROUP BY o.id
-            ORDER BY o.created_at DESC
+            SELECT "id", "user_id", "email", "customer_name", "address", "city", "phone", "total_amount", "payment_method", "status", "created_at"
+            FROM "orders"
+            ORDER BY "created_at" DESC
         `;
-        const result = await pool.query(query);
-        res.json(result.rows);
+        const orderResult = await pool.query(query);
+
+        // Lấy tất cả item, dùng dấu ngoặc kép ép kiểu cho tất cả tên cột
+        const itemResult = await pool.query(`
+            SELECT 
+                "id", 
+                "order_id", 
+                "product_id", 
+                "variant_id", 
+                "quantity", 
+                "price", 
+                "selected_model", 
+                "selected_color"
+            FROM "order_items"
+        `);
+
+        const ordersWithItems = orderResult.rows.map(o => ({
+            ...o,
+            items: itemResult.rows.filter(item => item.order_id === o.id)
+        }));
+
+        res.json(ordersWithItems);
     } catch (err) {
-        console.error("❌ LỖI TẢI DANH SÁCH ĐƠN HÀNG:", err.message);
+        console.error("LỖI CỐ ĐỊNH:", err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -697,7 +735,7 @@ app.get('/api/user/orders/:email', async (req, res) => {
         if (userRes.rows.length === 0) return res.json([]);
         const userId = userRes.rows[0].id;
 
-        // 2. Lấy đơn hàng của user này (kèm mảng colors y như Admin)
+        // 2. Lấy đơn hàng của user này (JOIN product_variants để lấy ảnh màu)
         const query = `
             SELECT o.*, 
                    COALESCE(json_agg(
@@ -708,13 +746,13 @@ app.get('/api/user/orders/:email', async (req, res) => {
                            'selected_model', oi.selected_model,
                            'selected_color', oi.selected_color,
                            'product_name', p.name,
-                           'product_image', p.image,
-                           'product_colors', p.colors
+                           'product_image', COALESCE(pv.color_img, p.image)
                        )
                    ) FILTER (WHERE oi.id IS NOT NULL), '[]') as items
             FROM orders o
             LEFT JOIN order_items oi ON o.id = oi.order_id
             LEFT JOIN products p ON oi.product_id = p.id
+            LEFT JOIN product_variants pv ON oi.variant_id = pv.variant_id
             WHERE o.user_id = $1
             GROUP BY o.id
             ORDER BY o.created_at DESC
